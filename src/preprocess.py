@@ -43,7 +43,8 @@ def add_average_rating(movies, ratings):
 def generate_users(movies, ratings, tags, n, min_count, tokenizer):
     tags = tokenize_column(tags, 'tag', tokenizer)
     users = get_users_with_softmax_genres(ratings, movies)
-    users = add_tags(users, ratings, tags, n, min_count)
+    tags = add_tags(users, ratings, tags, n, min_count)
+    users = pd.concat([users, tags], axis=1)
     return users
 
 def get_users_with_softmax_genres(ratings, movies):
