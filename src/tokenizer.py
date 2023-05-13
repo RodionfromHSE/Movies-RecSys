@@ -1,62 +1,84 @@
 from abc import ABC, abstractmethod
 from typing import Any
-from collections import Counter, defaultdict
+from collections import defaultdict
 from nltk import WordPunctTokenizer as WPT
 from nltk.corpus import stopwords
-import nltk
 import string
-
-nltk.download('stopwords')
+from collections import defaultdict
+from typing import Any
 
 class Tokenizer(ABC):
-    def __init__(self, texts, special_tokens=None, min_count=10):
-        if special_tokens is None:
-            special_tokens = {'UNK': 'UNK', 'PAD': 'PAD'}
-        assert isinstance(special_tokens, dict), 'special_tokens must be a dict'
-        assert 'UNK' in special_tokens, 'special_tokens must have UNK'
-        assert 'PAD' in special_tokens, 'special_tokens must have PAD'
-        self.special_tokens = special_tokens
-        self.__init_token_to_id(texts, min_count)
-
-    def __init_token_to_id(self, texts, min_count):
-        cnt = Counter()
-        # print(texts)
-        for text in texts:
-            cnt.update(self.tokenize(text))
-        tokens = [token for token, count in cnt.items() if count >= min_count]
-        # print(f'Number of tokens: {len(tokens)}')
-        # print(f'Tokens: {tokens[:10]}')
-        tokens = list(self.special_tokens.values()) + tokens
-        token_to_id = {token: i for i, token in enumerate(tokens)}
-        self.token_to_id = defaultdict(lambda: token_to_id[self.special_tokens['UNK']], token_to_id)
-
     @abstractmethod
-    def tokenize(self, text):
+    def __init__(self, tokens: list, special_tokens: dict) -> Any:
+        self.__init_special_tokens(special_tokens)
+        self.__init_token_utils(tokens)
+    
+    @abstractmethod
+    def tokenize(self, text: str) -> list:
         pass
 
-    def text_to_ids(self, text):
-        tokens = self.tokenize(text)
-        return [self.token_to_id[token] for token in tokens]
+    def decode(self, token_ids: list) -> list:
+        tokens = [self.id_to_token[token_id] for token_id in token_ids]
+        return tokens
 
-    def __call__(self, data):
-        if isinstance(data, str):
-            return self.text_to_ids(data)
-        return [self.text_to_ids(text) for text in data]
+    # eos, bos, unk, pad
+    def __init_special_tokens(self, special_tokens: dict):
+        assert isinstance(special_tokens, dict), "special_tokens must be a dictionary"
+        assert ['bos', 'eos', 'unk', 'pad'] == list(special_tokens.keys()), "special_tokens must contain bos, eos, unk, pad"
+        self.special_tokens = special_tokens
+
+    def __init_token_utils(self, tokens: list):
+        """	
+        init token_to_id and id_to_token
+        """
+        assert isinstance(tokens, list), "tokens must be a list of strings"
+        assert len(tokens) > 0, "tokens must be non-empty"
+        assert len(set(tokens)) == len(tokens), "tokens must be unique"
+        # add special tokens to tokens set
+        tokens = set(tokens).union(set(self.special_tokens.values()))
+        self.len = len(tokens)
+        token_to_id = {token: i for i, token in enumerate(tokens)}
+
+        def factory():
+            print('Warning: unknown token')
+            return token_to_id[self.special_tokens['unk']]
+        self.token_to_id = defaultdict(factory, token_to_id)
+        self.id_to_token = {v: k for k, v in self.token_to_id.items()}
+
+    def __call_single(self, text: str) -> list:
+        tokens = self.tokenize(text)
+        token_ids = [self.token_to_id[token] for token in tokens]
+        return token_ids
+
+    def __call__(self, text: Any) -> Any:
+        """	tokenize text or list of texts, i.e return list of token_ids """
+        if isinstance(text, str):
+            return self.__call_single(text)
+        return [self.__call_single(t) for t in text]
+    
+    def __len__(self) -> int:
+        """	returns number of tokens """
+        return self.len
     
 
 class WordTokenizer(Tokenizer):
-    def __init__(self, texts, special_tokens=None, min_count=10):
+    def __init__(self, tokens, special_tokens=None):
+        if special_tokens is None:
+            special_tokens = {'bos': 'bos', 'eos': 'eos', 'unk': 'unk', 'pad': 'pad'}
+        super().__init__(tokens, special_tokens)
+        # ignore punctuation and stopwords
         self.tokenizer = WPT()
-        super().__init__(texts, special_tokens, min_count)
 
     def tokenize(self, text):
         raw_tokens = self.tokenizer.tokenize(text.lower())
         return [token for token in raw_tokens if token not in string.punctuation and token not in stopwords.words('english')]
-    
 
 if __name__ == '__main__':
-    tk = WordTokenizer(['hello', 'hello world!'], min_count=1)
-    assert set(tk.token_to_id.values()) == {0, 1, 2, 3}, f"Wrong token_to_id values: {tk.token_to_id}"
-    assert set(tk.token_to_id.keys()) == {'UNK', 'PAD', 'hello', 'world'}, f"Wrong token_to_id keys: {set(tk.token_to_id.keys())}"
-    assert tk('hello world!') == [2, 3], tk('hello world!')
+    tokens = ['hello', 'world']
+    tk = WordTokenizer(tokens)
+    inp = 'hello world! bonjour?'
+    tokenized = tk(inp)
+    assert len(tk) == 6, f"Wrong number of tokens: {len(tk)}"
+    assert tk.decode(tokenized) == ['hello', 'world', tk.special_tokens['unk']], f"Wrong decoding: {tk.decode(tokenized)}"
+    assert tokenized == [tk.token_to_id['hello'], tk.token_to_id['world'], tk.token_to_id['unk']], f"Wrong tokenization: {tokenized}"
     print('Test passed!')
